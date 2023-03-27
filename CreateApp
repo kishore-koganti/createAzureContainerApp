@@ -1,0 +1,79 @@
+import { Construct } from 'constructs';
+import { App, TerraformStack, Token } from 'cdktf';
+import {
+  ResourceGroup,
+  ContainerRegistry,
+  AppServicePlan,
+  AppService,
+  DockerImage,
+} from './.gen/providers/azurerm';
+
+class MyStack extends TerraformStack {
+  constructor(scope: Construct, name: string) {
+    super(scope, name);
+
+    // Create a resource group
+    const resourceGroup = new ResourceGroup(this, 'ResourceGroup', {
+      name: 'my-resource-group',
+      location: 'westus2',
+    });
+
+    // Create a container registry
+    const containerRegistry = new ContainerRegistry(
+      this,
+      'ContainerRegistry',
+      {
+        name: 'mycontainerregistry',
+        resourceGroupName: resourceGroup.name,
+        location: resourceGroup.location,
+        sku: 'Basic',
+        adminEnabled: true,
+      }
+    );
+
+    // Create an app service plan
+    const appServicePlan = new AppServicePlan(
+      this,
+      'AppServicePlan',
+      {
+        name: 'my-appservice-plan',
+        location: resourceGroup.location,
+        resourceGroupName: resourceGroup.name,
+        sku: [
+          {
+            capacity: 1,
+            tier: 'Standard',
+            size: 'S1',
+          },
+        ],
+      }
+    );
+
+    // Create an app service
+    const appService = new AppService(this, 'AppService', {
+      name: 'my-appservice',
+      location: resourceGroup.location,
+      resourceGroupName: resourceGroup.name,
+      appServicePlanId: appServicePlan.id,
+      siteConfig: [
+        {
+          linuxFxVersion: 'DOCKER|mcr.microsoft.com/azuredocs/azure-vote-front:v1',
+        },
+      ],
+    });
+
+    // Set the container registry credentials
+    appService.appSettings = {
+      WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false',
+      DOCKER_REGISTRY_SERVER_URL: `https://${Token.asString(
+        containerRegistry.loginServer
+      )}`,
+      DOCKER_REGISTRY_SERVER_USERNAME: containerRegistry.adminUsername,
+      DOCKER_REGISTRY_SERVER_PASSWORD: containerRegistry.adminPassword,
+    };
+  }
+}
+
+const app = new App();
+new MyStack(app, 'azure-container-app');
+app.synth();
